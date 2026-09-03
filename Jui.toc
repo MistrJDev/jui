@@ -1,0 +1,40 @@
+## Interface: 120001 999999
+## Title: |cff9c4100 Jui|r
+## Notes: |cff9c4100 Minimalist PvP utility suite: Loss of Control, Queue Timer, Winrate, Raid/Player Auras, Capping. |r
+## Author: @mistrj_
+## Version: 1.0.2
+## SavedVariables: JuiDB
+
+## IconTexture: Interface\Icons\Spell_Nature_EarthBind
+## DefaultState: Enabled
+## LoadOnDemand: 0
+
+# Core (order matters - each depends on the ones above it)
+Core\Utils.lua
+Core\Database.lua
+Core\Events.lua
+Core\Modules.lua
+Core\Commands.lua
+
+# UI framework
+UI\Theme.lua
+UI\Fonts.lua
+UI\Components.lua
+UI\Navigation.lua
+UI\Main.lua
+UI\Overview.lua
+UI\Settings.lua
+
+# Modules (each self-registers; order among these doesn't matter)
+Modules\LossOfControl.lua
+Modules\QueueTimer.lua
+Modules\Winrate.lua
+Modules\RaidAuras.lua
+Modules\PlayerAuras.lua
+Modules\Capping.lua
+
+# Init runs last - its ADDON_LOADED handler is what actually starts
+# everything above (Database:Initialize -> Modules:InitializeAll ->
+# UI:Initialize), so every module/page must already be registered by the
+# time this file's logic fires.
+Core\Init.lua
