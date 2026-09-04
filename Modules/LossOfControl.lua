@@ -41,11 +41,23 @@ LocFrame.CounterText:SetPoint("CENTER", LocFrame.Icon, "CENTER", 0, 0)
 Jui.Fonts:Apply(LocFrame.CounterText, 18, "OUTLINE")
 LocFrame.CounterText:SetTextColor(1, 1, 1)
 
+-- Applies every user-configurable display setting: position, icon size,
+-- type/counter text sizes, type text color, and whether each text
+-- element shows at all. Called both on layout changes and whenever a new
+-- LoC event fires, so live settings changes take effect immediately
+-- without needing to re-trigger the CC.
 local function ApplyLayout()
     local db = Jui.Database:Get().lossOfControl
     LocFrame:ClearAllPoints()
     LocFrame:SetPoint("CENTER", UIParent, "CENTER", db.x, db.y)
     LocFrame:SetSize(db.size, db.size)
+
+    Jui.Fonts:Apply(LocFrame.TypeText, db.typeTextSize or 16, "OUTLINE")
+    local color = db.typeTextColor or {1, 0.25, 0.2}
+    LocFrame.TypeText:SetTextColor(color[1], color[2], color[3])
+    LocFrame.TypeText:SetShown(db.showTypeText ~= false and LocFrame.activeData ~= nil)
+
+    Jui.Fonts:Apply(LocFrame.CounterText, db.counterTextSize or 18, "OUTLINE")
 end
 
 LocFrame:SetScript("OnUpdate", function(self)
@@ -82,7 +94,10 @@ local function ShowLoC(data)
         LocFrame.Icon:SetTexture(data.iconTexture)
     end
 
-    if data.startTime and data.duration and data.duration > 0 then
+    local db = Jui.Database:Get().lossOfControl
+    local wantsCounter = db.showCounter ~= false
+
+    if wantsCounter and data.startTime and data.duration and data.duration > 0 then
         LocFrame.Cooldown:SetCooldown(data.startTime, data.duration)
         LocFrame.Cooldown:Show()
         LocFrame.CounterText:Show()
@@ -162,6 +177,78 @@ function mod:CreateSettings(parent)
         function(v) db.size = v; ApplyLayout() end)
     sizeSlider:SetPoint("TOPLEFT", 15, sizeGroup.ContentTop)
 
+    local displayGroup = Jui.UI:CreateSection(parent, "Display")
+    displayGroup:SetPoint("TOPLEFT", sizeGroup, "BOTTOMLEFT", 0, -12)
+    displayGroup:SetSize(440, 130)
+
+    local showTypeCB = Jui.UI:CreateCheckbox(displayGroup, "Show Type Text",
+        function() return db.showTypeText ~= false end,
+        function(v) db.showTypeText = v; ApplyLayout() end)
+    showTypeCB:SetPoint("TOPLEFT", 15, displayGroup.ContentTop)
+
+    local showCounterCB = Jui.UI:CreateCheckbox(displayGroup, "Show Timer",
+        function() return db.showCounter ~= false end,
+        function(v)
+            db.showCounter = v
+            if LocFrame.activeData then ShowLoC(LocFrame.activeData) end
+        end)
+    showCounterCB:SetPoint("TOPLEFT", 225, displayGroup.ContentTop)
+
+    local typeTextSlider = Jui.UI:CreateSlider(displayGroup, "Type Text Size", 10, 32,
+        function() return db.typeTextSize or 16 end,
+        function(v) db.typeTextSize = v; ApplyLayout() end)
+    typeTextSlider:SetPoint("TOPLEFT", 15, displayGroup.ContentTop - 52)
+
+    local counterTextSlider = Jui.UI:CreateSlider(displayGroup, "Timer Text Size", 10, 32,
+        function() return db.counterTextSize or 18 end,
+        function(v) db.counterTextSize = v; ApplyLayout() end)
+    counterTextSlider:SetPoint("LEFT", typeTextSlider, "RIGHT", 55, 0)
+
+    local themeGroup = Jui.UI:CreateSection(parent, "Theme")
+    themeGroup:SetPoint("TOPLEFT", displayGroup, "BOTTOMLEFT", 0, -12)
+    themeGroup:SetSize(440, 80)
+
+    local swatch = CreateFrame("Button", nil, themeGroup, "BackdropTemplate")
+    swatch:SetSize(60, 22)
+    swatch:SetPoint("TOPLEFT", 15, themeGroup.ContentTop)
+    swatch:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 1,
+    })
+    swatch:SetBackdropBorderColor(unpack(C.borderSoft))
+
+    local swatchLabel = Jui.UI:CreateText(themeGroup, "Small", C.textSecond)
+    swatchLabel:SetPoint("BOTTOMLEFT", swatch, "TOPLEFT", 0, 5)
+    swatchLabel:SetText("Type Text Color")
+
+    local function RefreshSwatch()
+        local color = db.typeTextColor or {1, 0.25, 0.2}
+        swatch:SetBackdropColor(color[1], color[2], color[3])
+    end
+    swatch:SetScript("OnShow", RefreshSwatch)
+    RefreshSwatch()
+
+    swatch:SetScript("OnClick", function()
+        local color = db.typeTextColor or {1, 0.25, 0.2}
+        ColorPickerFrame:SetupColorPickerAndShow({
+            r = color[1], g = color[2], b = color[3],
+            swatchFunc = function()
+                local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+                db.typeTextColor = {nr, ng, nb}
+                RefreshSwatch()
+                ApplyLayout()
+            end,
+            cancelFunc = function(prev)
+                if prev then
+                    db.typeTextColor = {prev.r, prev.g, prev.b}
+                    RefreshSwatch()
+                    ApplyLayout()
+                end
+            end,
+        })
+    end)
+
     local testBtn = Jui.UI:CreateButton(parent, LocFrame.isTesting and "Stop Test" or "Test Display")
     testBtn:SetPoint("TOPLEFT", posGroup, "TOPRIGHT", 12, 0)
     testBtn:SetSize(120, 24)
@@ -185,7 +272,7 @@ function mod:CreateSettings(parent)
         end
     end)
 
-    parent:SetHeight(180)
+    parent:SetHeight(390)
 end
 
 Jui.UI.Settings:RegisterModulePage("lossOfControl", "Loss of Control", "gameplay")

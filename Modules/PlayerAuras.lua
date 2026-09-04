@@ -151,12 +151,14 @@ local function CreateAuraButton(auraFrame, category, size)
     JuiPlayerAuraButtons[auraFrame] = {
         baseDuration = baseDuration,
         baseCount = baseCount,
-        isDebuff = isDebuff
+        isDebuff = isDebuff,
+        category = category
     }
 
     -- Base border color
     if category == "enchant" then
-        auraFrame.Border:SetVertexColor(unpack(COLOR_ENCHANT_BORDER))
+        local color = db.enchantColor or COLOR_ENCHANT_BORDER
+        auraFrame.Border:SetVertexColor(color[1], color[2], color[3], color[4] or 1)
     else
         auraFrame.Border:SetVertexColor(unpack(COLOR_BUFF_BORDER))
     end
@@ -286,7 +288,13 @@ local function CreatePlayerAuraContainer(hostFrame, isDebuff)
 
     local filterString = isDebuff and AuraUtil.CreateFilterString(AuraUtil.AuraFilters.Harmful)
         or AuraUtil.CreateFilterString(AuraUtil.AuraFilters.Helpful)
-    local maxCount = isDebuff and (DEBUFF_MAX_DISPLAY or 16) or (BUFF_MAX_DISPLAY or 32)
+
+    -- "Show Buffs"/"Show Debuffs" work the same way RaidAuras' visibility
+    -- toggles do: capping maxFrameCount at 0 rather than trying to hide
+    -- the container itself, since AddAuraGroup doesn't offer a simpler
+    -- on/off switch.
+    local hidden = isDebuff and (db.showDebuffs == false) or (not isDebuff and db.showBuffs == false)
+    local maxCount = hidden and 0 or (isDebuff and (DEBUFF_MAX_DISPLAY or 16) or (BUFF_MAX_DISPLAY or 32))
 
     container:AddAuraGroup(isDebuff and "PlayerDebuffs" or "PlayerBuffs", filterString, {
         maxFrameCount = maxCount,
@@ -296,7 +304,9 @@ local function CreatePlayerAuraContainer(hostFrame, isDebuff)
     })
 
     -- Weapon enchants (temporary buffs) live in the buff container.
-    if not isDebuff then
+    -- AddItemEnchantment doesn't have a maxFrameCount-style visibility
+    -- knob, so "Show Enchants" skips adding them at all instead.
+    if not isDebuff and db.showEnchants ~= false then
         for _, slot in ipairs({AuraContainerItemEnchantmentSlot.MainHand,
                                AuraContainerItemEnchantmentSlot.OffHand,
                                AuraContainerItemEnchantmentSlot.Ranged}) do
@@ -409,6 +419,24 @@ local function UpdateAllTooltips()
     end
 end
 
+-- "Show Buffs"/"Show Debuffs" apply live via SetAuraGroupMaxFrameCount
+-- (same technique RaidAuras uses for its defensive-visibility toggle).
+-- "Show Enchants" can't work this way - AddItemEnchantment has no
+-- equivalent live toggle, so that one needs a reload, same honest
+-- trade-off as enabling/disabling the whole module.
+local function UpdateAllVisibility()
+    for _, hostFrame in ipairs({BuffFrame, DebuffFrame}) do
+        local container = hostFrame.juiAuraContainer
+        if container then
+            local isDebuff = (hostFrame == DebuffFrame)
+            local hidden = isDebuff and (db.showDebuffs == false) or (not isDebuff and db.showBuffs == false)
+            local maxCount = hidden and 0 or (isDebuff and (DEBUFF_MAX_DISPLAY or 16) or (BUFF_MAX_DISPLAY or 32))
+            pcall(container.SetAuraGroupMaxFrameCount, container,
+                isDebuff and "PlayerDebuffs" or "PlayerBuffs", maxCount)
+        end
+    end
+end
+
 ----------------------------------------------------------------------
 
 ----------------------------------------------------------------------
@@ -477,7 +505,76 @@ function mod:CreateSettings(parent)
         function(v) db.countTextSize = v; UpdateAllTextSizes() end)
     cntTextSlider:SetPoint("LEFT", durTextSlider, "RIGHT", 55, 0)
 
-    parent:SetHeight(365)
+    local displayGroup = Jui.UI:CreateSection(parent, "Display", nil, GROUP_WIDTH)
+    displayGroup:SetPoint("TOPLEFT", textGroup, "BOTTOMLEFT", 0, -18)
+    displayGroup:SetSize(GROUP_WIDTH, 70)
+
+    local showBuffsCB = Jui.UI:CreateCheckbox(displayGroup, "Show Buffs",
+        function() return db.showBuffs ~= false end,
+        function(v) db.showBuffs = v; UpdateAllVisibility() end)
+    showBuffsCB:SetPoint("TOPLEFT", 15, displayGroup.ContentTop)
+
+    local showDebuffsCB = Jui.UI:CreateCheckbox(displayGroup, "Show Debuffs",
+        function() return db.showDebuffs ~= false end,
+        function(v) db.showDebuffs = v; UpdateAllVisibility() end)
+    showDebuffsCB:SetPoint("TOPLEFT", 225, displayGroup.ContentTop)
+
+    local showEnchantsCB = Jui.UI:CreateCheckbox(displayGroup, "Show Enchants (reload)",
+        function() return db.showEnchants ~= false end,
+        function(v) db.showEnchants = v end)
+    showEnchantsCB:SetPoint("TOPLEFT", 435, displayGroup.ContentTop)
+    Jui.UI:AttachTooltip(showEnchantsCB, "Show Enchants",
+        "Weapon enchant icons are only added to the buff frame when it's first built, so this one needs a UI reload to take effect - unlike Show Buffs/Show Debuffs above, which apply immediately.")
+
+    local themeGroup = Jui.UI:CreateSection(parent, "Theme", nil, GROUP_WIDTH)
+    themeGroup:SetPoint("TOPLEFT", displayGroup, "BOTTOMLEFT", 0, -18)
+    themeGroup:SetSize(GROUP_WIDTH, 70)
+
+    local swatch = CreateFrame("Button", nil, themeGroup, "BackdropTemplate")
+    swatch:SetSize(60, 22)
+    swatch:SetPoint("TOPLEFT", 15, themeGroup.ContentTop)
+    swatch:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 1,
+    })
+    swatch:SetBackdropBorderColor(unpack(C.borderSoft))
+
+    local swatchLabel = Jui.UI:CreateText(themeGroup, "Small", C.textSecond)
+    swatchLabel:SetPoint("BOTTOMLEFT", swatch, "TOPLEFT", 0, 5)
+    swatchLabel:SetText("Enchant Border Color")
+
+    local function RefreshSwatch()
+        local color = db.enchantColor or COLOR_ENCHANT_BORDER
+        swatch:SetBackdropColor(color[1], color[2], color[3])
+    end
+    swatch:SetScript("OnShow", RefreshSwatch)
+    RefreshSwatch()
+
+    swatch:SetScript("OnClick", function()
+        local color = db.enchantColor or COLOR_ENCHANT_BORDER
+        ColorPickerFrame:SetupColorPickerAndShow({
+            r = color[1], g = color[2], b = color[3],
+            swatchFunc = function()
+                local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+                db.enchantColor = {nr, ng, nb}
+                RefreshSwatch()
+                for auraFrame, info in pairs(JuiPlayerAuraButtons) do
+                    if info.category == "enchant" then
+                        pcall(auraFrame.Border.SetVertexColor, auraFrame.Border, nr, ng, nb, 1)
+                    end
+                end
+            end,
+            cancelFunc = function(prev)
+                if prev then
+                    db.enchantColor = {prev.r, prev.g, prev.b}
+                    RefreshSwatch()
+                end
+            end,
+        })
+    end)
+
+    parent:SetHeight(560)
 end
 
 Jui.UI.Settings:RegisterModulePage("playerAuras", "Player Auras", "auras")

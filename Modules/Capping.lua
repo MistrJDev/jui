@@ -75,6 +75,7 @@ local function ApplyBarLayout()
     local width = 220 * size
     local height = 20 * size
     local gap = 4 * size
+    local dir = (db.growDirection == "UP") and 1 or -1
 
     local shownIndex = 0
     for _, bar in ipairs(bars) do
@@ -82,8 +83,9 @@ local function ApplyBarLayout()
             shownIndex = shownIndex + 1
             bar:SetSize(width, height)
             bar:ClearAllPoints()
-            bar:SetPoint("TOP", UIParent, "CENTER", db.x, db.y - (shownIndex - 1) * (height + gap))
-            Jui.Fonts:Apply(bar.Text, math.max(math.floor(11 * size), 8))
+            bar:SetPoint("TOP", UIParent, "CENTER", db.x, db.y + dir * (shownIndex - 1) * (height + gap))
+            Jui.Fonts:Apply(bar.Text, math.max(math.floor((db.textSize or 11) * size), 8))
+            bar.Marker:SetShown(db.showMarker ~= false)
         end
     end
 end
@@ -241,10 +243,35 @@ function mod:CreateSettings(parent)
         function(v) db.scale = v / 100; ApplyBarLayout() end)
     sizeSlider:SetPoint("TOPLEFT", 15, sizeGroup.ContentTop)
 
+    local textSlider = Jui.UI:CreateSlider(sizeGroup, "Text Size", 8, 20,
+        function() return db.textSize or 11 end,
+        function(v) db.textSize = v; ApplyBarLayout() end)
+    textSlider:SetPoint("LEFT", sizeSlider, "RIGHT", 55, 0)
+
+    local displayGroup = Jui.UI:CreateSection(parent, "Display")
+    displayGroup:SetPoint("TOPLEFT", sizeGroup, "BOTTOMLEFT", 0, -12)
+    displayGroup:SetSize(440, 100)
+
+    local maxBarsSlider = Jui.UI:CreateSlider(displayGroup, "Max Bars", 1, MAX_BARS,
+        function() return db.maxBars or MAX_BARS end,
+        function(v) db.maxBars = v; UpdateCapping() end)
+    maxBarsSlider:SetPoint("TOPLEFT", 15, displayGroup.ContentTop)
+
+    local growDropdown = Jui.UI:CreateDropdown(displayGroup, "Growth Direction",
+        {{value = "DOWN", text = "Down"}, {value = "UP", text = "Up"}},
+        function() return db.growDirection or "DOWN" end,
+        function(v) db.growDirection = v; ApplyBarLayout() end)
+    growDropdown:SetPoint("LEFT", maxBarsSlider, "RIGHT", 55, 6)
+
+    local markerCB = Jui.UI:CreateCheckbox(displayGroup, "Show Position Marker",
+        function() return db.showMarker ~= false end,
+        function(v) db.showMarker = v; ApplyBarLayout() end)
+    markerCB:SetPoint("TOPLEFT", 15, displayGroup.ContentTop - 52)
+
     -- Covers both the with-emptyState and without-emptyState cases; a bit
     -- of unused scroll range at the bottom is harmless, unlike content
     -- silently running off the end.
-    parent:SetHeight(emptyState and 340 or 240)
+    parent:SetHeight(emptyState and 460 or 360)
 end
 
 Jui.UI.Settings:RegisterModulePage("capping", "Capping", "gameplay")

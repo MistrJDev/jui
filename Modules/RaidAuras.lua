@@ -18,6 +18,14 @@ local C = Jui.Theme
 -- this file loads before Jui.Database:Initialize() has run, so
 -- Jui.Database:Get() would still be nil at this point.
 local db
+local UpdateTestPreview -- forward-declared: UpdateAllSizes/UpdateAllDispelColors
+                          -- (defined well before the test preview section)
+                          -- need to call this, and it can't be an upvalue
+                          -- to code that runs before its own declaration.
+local RaidTest = {isTesting = false, icons = {}} -- same reasoning - referenced
+                                                   -- by UpdateAllSizes/UpdateAllDispelColors
+                                                   -- long before the test preview
+                                                   -- section actually builds it out.
 
 ----------------------------------------------------------------------
 -- Tunables (ported from mirror; these mirror Blizzard's own defaults
@@ -667,6 +675,8 @@ local function UpdateAllSizes()
             if base and base > 0 then data.otherContainer:SetScale(otherSize / base) end
         end
     end
+
+    if RaidTest.isTesting then UpdateTestPreview() end
 end
 
 local function UpdateAllDebuffLimit()
@@ -732,6 +742,7 @@ local function UpdateAllDispelColors()
             pcall(auraFrame.DispelBorder.SetAlpha, auraFrame.DispelBorder, alpha)
         end
     end
+    if RaidTest.isTesting then UpdateTestPreview() end
 end
 
 -- "Show defensives" - the Other/defensive row can be switched off entirely.
@@ -797,6 +808,99 @@ local function UpdateAllLayout()
 end
 
 ----------------------------------------------------------------------
+-- Test preview - standalone icons (not real AuraButton widgets, which
+-- only exist inside a real AuraContainer) that mimic the same rounded-
+-- icon + border look via the same mask texture, so buff/debuff/other
+-- sizing and the dispel-color toggle can be previewed without being in
+-- a group.
+----------------------------------------------------------------------
+RaidTest = {isTesting = false, icons = {}}
+
+local function CreateTestIcon(parent, dispelColor)
+    local f = CreateFrame("Frame", nil, parent)
+
+    f.Border = f:CreateTexture(nil, "BACKGROUND", nil, 0)
+    f.Border:SetPoint("TOPLEFT", f, "TOPLEFT", -2, 2)
+    f.Border:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 2, -2)
+    f.Border:SetColorTexture(0, 0, 0, 1)
+    local borderMask = f:CreateMaskTexture()
+    borderMask:SetTexture(ICON_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    borderMask:SetAllPoints(f.Border)
+    f.Border:AddMaskTexture(borderMask)
+
+    if dispelColor then
+        f.DispelBorder = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+        f.DispelBorder:SetAllPoints(f.Border)
+        f.DispelBorder:SetColorTexture(dispelColor[1], dispelColor[2], dispelColor[3], 1)
+        f.DispelBorder:AddMaskTexture(borderMask)
+    end
+
+    f.Icon = f:CreateTexture(nil, "ARTWORK")
+    f.Icon:SetAllPoints()
+    f.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    f.Icon:SetTexture("Interface\\Icons\\Spell_Holy_PowerWordShield")
+    local iconMask = f:CreateMaskTexture()
+    iconMask:SetTexture(ICON_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    iconMask:SetAllPoints(f.Icon)
+    f.Icon:AddMaskTexture(iconMask)
+
+    return f
+end
+
+local testFrame = CreateFrame("Frame", nil, UIParent)
+testFrame:SetSize(10, 10)
+testFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 150)
+testFrame:SetFrameStrata("HIGH")
+testFrame:Hide()
+
+RaidTest.icons.buff1 = CreateTestIcon(testFrame)
+RaidTest.icons.buff2 = CreateTestIcon(testFrame)
+RaidTest.icons.buff3 = CreateTestIcon(testFrame)
+RaidTest.icons.debuff1 = CreateTestIcon(testFrame, {0.2, 0.6, 1})   -- Magic-style blue
+RaidTest.icons.debuff2 = CreateTestIcon(testFrame, {0.2, 0.8, 0.2}) -- Poison-style green
+RaidTest.icons.debuffBig = CreateTestIcon(testFrame, {0.8, 0.2, 0.2}) -- Curse-style red
+RaidTest.icons.other = CreateTestIcon(testFrame)
+
+UpdateTestPreview = function()
+    local buffSize, debuffSize, bigDebuffSize = GetSizes()
+    local otherSize = GetOtherSize()
+    local gap = 4
+
+    for _, icon in pairs({RaidTest.icons.debuff1, RaidTest.icons.debuff2, RaidTest.icons.debuffBig}) do
+        if icon.DispelBorder then icon.DispelBorder:SetAlpha(db.dispelColors ~= false and 1 or 0) end
+    end
+
+    -- Buffs, left group
+    local x = 0
+    for _, key in ipairs({"buff1", "buff2", "buff3"}) do
+        local icon = RaidTest.icons[key]
+        icon:SetSize(buffSize, buffSize)
+        icon:ClearAllPoints()
+        icon:SetPoint("LEFT", testFrame, "LEFT", x, 0)
+        x = x + buffSize + gap
+    end
+
+    -- Debuffs (two normal + one enlarged), right of the buffs with a gap
+    x = x + 20
+    for _, key in ipairs({"debuff1", "debuff2"}) do
+        local icon = RaidTest.icons[key]
+        icon:SetSize(debuffSize, debuffSize)
+        icon:ClearAllPoints()
+        icon:SetPoint("LEFT", testFrame, "LEFT", x, 0)
+        x = x + debuffSize + gap
+    end
+    RaidTest.icons.debuffBig:SetSize(bigDebuffSize, bigDebuffSize)
+    RaidTest.icons.debuffBig:ClearAllPoints()
+    RaidTest.icons.debuffBig:SetPoint("LEFT", testFrame, "LEFT", x, 0)
+    x = x + bigDebuffSize + 20
+
+    -- "Other" (important defensive), further right
+    RaidTest.icons.other:SetSize(otherSize, otherSize)
+    RaidTest.icons.other:ClearAllPoints()
+    RaidTest.icons.other:SetPoint("LEFT", testFrame, "LEFT", x, 0)
+end
+
+----------------------------------------------------------------------
 -- Module registration
 ----------------------------------------------------------------------
 local mod = Jui:RegisterModule({
@@ -836,6 +940,22 @@ function mod:CreateSettings(parent)
         function() return db.tooltips end,
         function(v) db.tooltips = v; UpdateAllTooltips() end)
     tooltipCB:SetPoint("TOPLEFT", 15, generalGroup.ContentTop)
+
+    local testBtn = Jui.UI:CreateButton(generalGroup, RaidTest.isTesting and "Stop Test" or "Test Display")
+    testBtn:SetSize(120, 24)
+    testBtn:SetPoint("TOPRIGHT", -15, generalGroup.ContentTop + 8)
+    testBtn:SetScript("OnClick", function()
+        if RaidTest.isTesting then
+            RaidTest.isTesting = false
+            testFrame:Hide()
+            testBtn.Text:SetText("Test Display")
+        else
+            RaidTest.isTesting = true
+            UpdateTestPreview()
+            testFrame:Show()
+            testBtn.Text:SetText("Stop Test")
+        end
+    end)
 
     ----------------------------------------------------------------------
     local buffGroup = Jui.UI:CreateSection(parent, "Buffs", nil, GROUP_WIDTH)

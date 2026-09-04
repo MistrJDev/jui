@@ -34,6 +34,11 @@ local DEFAULTS = {
         x = 0,
         y = -60,
         size = 40,
+        typeTextSize = 16,
+        counterTextSize = 18,
+        showTypeText = true,
+        showCounter = true,
+        typeTextColor = {1, 0.25, 0.2},
     },
 
     queueTimer = {
@@ -82,6 +87,11 @@ local DEFAULTS = {
         iconSize = 30,
         durationTextSize = 100,
         countTextSize = 100,
+        showBuffs = true,
+        showDebuffs = true,
+        showEnchants = true,
+        iconSpacing = 2,
+        enchantColor = {1, 0.82, 0},
     },
 
     capping = {
@@ -90,6 +100,9 @@ local DEFAULTS = {
         x = 0,
         y = 220,
         maxBars = 5,
+        textSize = 11,
+        growDirection = "DOWN",
+        showMarker = true,
     },
 }
 Jui.Database.Defaults = DEFAULTS
